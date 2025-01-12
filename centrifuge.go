@@ -73,9 +73,13 @@ func main() {
 	centrifuge = map[string]map[string]myCentrifuge{}
 	centrifuge[""] = map[string]myCentrifuge{}
 	var hostnameArray arrayFlags
+	var certFileArray arrayFlags
+	var keyFileArray arrayFlags
 
 	port := flag.String("p", "0.0.0.0:443/ssl", "listen port")
 	flag.Var(&hostnameArray, "n", "host name")
+	flag.Var(&certFileArray, "c", "certificate path")
+	flag.Var(&keyFileArray,  "k", "private key path")
 	flag.Parse()
 
 	for _, param := range flag.Args() {
@@ -93,22 +97,33 @@ func main() {
 	}
 
 	if ssl {
-		certManager := autocert.Manager{
-			Prompt:     autocert.AcceptTOS,                       // Let's Encryptの利用規約への同意
-			HostPolicy: autocert.HostWhitelist(hostnameArray...), // ドメイン名
-			Cache:      autocert.DirCache("certs"),               // 証明書などを保存するフォルダ
-		}
+		var config *tls.Config
+		if len(hostnameArray) > 0 {
+			certManager := autocert.Manager{
+				Prompt:     autocert.AcceptTOS, // Let's Encryptの利用規約への同意
+				HostPolicy: autocert.HostWhitelist(hostnameArray...), // ドメイン名
+				Cache:      autocert.DirCache("certs"), // 証明書などを保存するフォルダ
+			}
 
-		// http-01 Challenge(ドメインの所有確認)、HTTPSへのリダイレクト用のサーバー
-		challengeServer := &http.Server{
-			Handler: certManager.HTTPHandler(nil),
-			Addr:    ":10080",
-		}
-		go challengeServer.ListenAndServe()
+			// http-01 Challenge(ドメインの所有確認)、HTTPSへのリダイレクト用のサーバー
+			challengeServer := &http.Server{
+				Handler: certManager.HTTPHandler(nil),
+				Addr:    ":10080",
+			}
+			go challengeServer.ListenAndServe()
 
-		// config := &tls.Config{Certificates: []tls.Certificate{cer}}
-		config := &tls.Config{
-			GetCertificate: certManager.GetCertificate,
+			// config := &tls.Config{Certificates: []tls.Certificate{cer}}
+			config = &tls.Config{
+				GetCertificate: certManager.GetCertificate,
+			}
+		} else {
+			cer, err := tls.LoadX509KeyPair(certFileArray[0], keyFileArray[0])
+			if err != nil {
+				checkError(err)
+				return
+			}
+
+			config = &tls.Config{Certificates: []tls.Certificate{cer}}
 		}
 		ln, err := tls.Listen("tcp", listenport, config)
 		if err != nil {
